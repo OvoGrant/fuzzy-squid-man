@@ -75,7 +75,6 @@ func (cr *ChatRoom) broadcastMessage(message Message) {
 func readMessages(client *Client) {
 	for message := range client.Send {
 		err := client.Conn.WriteJSON(message)
-
 		if err != nil {
 			log.Println("Error writing to socket", err)
 		}
@@ -92,14 +91,15 @@ func (cr *ChatRoom) leave(client *Client) {
 }
 
 func (cr *ChatRoom) broadcast(message Message) {
-	cr.Lock.Lock()
 	for _, v := range cr.Members {
 		v.Send <- message
 	}
-	cr.Lock.Unlock()
 }
 
-var connectionUpgrader = websocket.Upgrader{
+var mutexLock sync.Mutex
+
+// WebSocket upgrader to handle client connections
+var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
@@ -107,7 +107,7 @@ var connectionUpgrader = websocket.Upgrader{
 
 func handleConnection(w http.ResponseWriter, r *http.Request) {
 
-	conn, err := connectionUpgrader.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
 		log.Println("Failed to upgrade to WebSocket")
@@ -143,7 +143,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		conn.Close()
 		chatRoom.leave(&client)
-		chatRoom.broadcast(Message{client.Id, time.Now(), "client left", LeaveMessage})
+		chatRoom.broadcast(Message{client.Id, time.Now(), "Leaving", LeaveMessage})
 		close(client.Send)
 	}()
 
@@ -152,12 +152,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	chatRoom.Lock.Lock()
 	if len(chatRoom.Members) > 1 {
-		chatRoom.broadcast(Message{client.Id, time.Now(), "You've been matched", MatchMessage})
+		chatRoom.broadcast(Message{client.Id, time.Now(), "Matched", MatchMessage})
 	}
 	chatRoom.Lock.Unlock()
 
 	for {
-
 		_, msg, err := conn.ReadMessage()
 
 		fmt.Println(string(msg))
@@ -175,7 +174,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fmt.Println(message)
-
 		chatRoom.broadcast(message)
 
 	}
